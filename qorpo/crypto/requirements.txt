@@ -1,0 +1,6 @@
+aiohttp
+ccxt
+sqlalchemy
+psycopg2
+gunicorn
+pytest-aiohttp

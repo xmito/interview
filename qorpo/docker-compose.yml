@@ -1,0 +1,27 @@
+version: '3.1'
+services:
+
+  postgres:
+    image: postgres
+    restart: always
+    environment:
+      POSTGRES_DB: crypto
+      POSTGRES_USER: crypto
+      POSTGRES_PASSWORD: crypto
+    ports:
+      - 5432:5432
+
+  app:
+    build: 
+      context: ./crypto
+      dockerfile: Dockerfile
+      args:
+        - DATABASE_HOST=postgres
+        - DATABASE_PORT=5432
+        - DATABASE_NAME=crypto
+        - DATABASE_USER=crypto
+        - DATABASE_PASSWORD=crypto
+    ports: 
+      - 8000:8000
+    depends_on:
+      - postgres

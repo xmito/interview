@@ -1,0 +1,92 @@
+stages:
+  - build
+  - test
+  - deploy
+
+variables:
+  REPO_NAME: mito1804/builds
+
+  APP: crypto
+  TAG_NAME: $APP-v1.0
+  DOCKER_IMAGE_TAG: $REPO_NAME:$TAG_NAME
+
+  DEPLOY_ENV: $APP/$CI_COMMIT_REF_SLUG
+  DEPLOY_PATH: ~/apps/$DEPLOY_ENV
+  DEPLOY_USER: gitlab
+  DEPLOY_HOST: aurora.private.home
+
+build:
+  stage: build
+  image: docker:25.0.3
+  services:
+    - docker:25.0.3-dind
+  before_script:
+    - docker login -u $REGISTRY_USER -p $REGISTRY_PASSWD
+  script:
+    - docker build -t $DOCKER_IMAGE_TAG ./$APP
+    - docker push $REPO_NAME:$TAG_NAME
+  environment: build
+  tags:
+    - docker
+
+test:
+  stage: test
+  image: $DOCKER_IMAGE_TAG
+  services:
+    - postgres
+  variables:
+    POSTGRES_HOST: postgres
+    POSTGRES_PORT: 5432
+    POSTGRES_DB: crypto
+    POSTGRES_USER: crypto
+    POSTGRES_PASSWORD: crypto
+  script:
+    - pytest $APP/
+  tags:
+    - docker
+
+deploy:
+  stage: deploy
+  before_script:
+    - chmod 400 $SSH_KEY
+  script:
+    - ssh -i $SSH_KEY -o StrictHostKeyChecking=no $DEPLOY_USER@$DEPLOY_HOST "mkdir -p $DEPLOY_PATH"
+    - scp -i $SSH_KEY -r $CI_PROJECT_DIR/* $DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH
+    - ssh -i $SSH_KEY $DEPLOY_USER@$DEPLOY_HOST "
+      docker compose -p $APP -f $DEPLOY_PATH/docker-compose.yml up -d --force-recreate"
+  environment:
+    name: $APP/$CI_COMMIT_REF_SLUG
+    url: http://$DEPLOY_HOST:8000
+    on_stop: stop_deploy
+    auto_stop_in: 1 month
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+$/'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+  when: manual
+  tags:
+    - shell
+  dependencies:
+    - test
+  resource_group: deploy
+
+stop_deploy:
+  stage: deploy
+  variables:
+    GIT_STRATEGY: none
+  before_script:
+    - chmod 400 $SSH_KEY
+  script:
+    - ssh -i $SSH_KEY -o StrictHostKeyChecking=no $DEPLOY_USER@$DEPLOY_HOST "
+      docker compose -p $APP -f $DEPLOY_PATH/docker-compose.yml down && rm -rf $DEPLOY_PATH"
+  environment:
+    name: $APP/$CI_COMMIT_REF_SLUG
+    action: stop
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+$/'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+  when: manual
+  tags:
+    - shell
+  resource_group: deploy
